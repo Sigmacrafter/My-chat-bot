@@ -1,0 +1,50 @@
+const np = require('numpy');
+const pd = require('pandas');
+const plt = require('matplotlib').pyplot;
+const style = require('matplotlib').style;
+style.use('ggplot');
+const nltk = require('nltk');
+const SentimentIntensityAnalyzer = require('nltk').sentiment.vader.SentimentIntensityAnalyzer;
+const time = require('time');
+const TfidfVectorizer = require('sklearn').feature_extraction.text.TfidfVectorizer;
+const confusion_matrix = require('sklearn').metrics.confusion_matrix;
+const MultinomialNB = require('sklearn').naive_bayes.MultinomialNB;
+const RandomForestClassifier = require('sklearn').ensemble.RandomForestClassifier;
+
+const CHUNK_SIZE = 600;
+const OVERLAP = 20;
+const openai = require('openai');
+openai.api_key = prompt("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");
+const train = pd.read_csv('../input/drugsComTrain_raw.csv'); // assuming the file is in the same directory
+const test = pd.read_csv('../input/drugsComTest_raw.csv');
+const chunks = [text_list.slice(i, i + CHUNK_SIZE) for i in range(0, text_list.length, CHUNK_SIZE - OVERLAP)];
+const df = pd.DataFrame(columns = ['chunk', 'gpt_raw', 'embedding']);
+for (let chunk of chunks) {
+    const f = openai.Embedding.create(
+        model = "text-embedding-ada-002",
+        input = chunk.join(" ")
+    );
+    df.loc[df.index.length] = [chunk, f, np.array(f['data'][0]['embedding'])];
+}
+train.head();
+test.head();
+list(train) == list(test);
+console.log(list(train));
+const query = "What drug should be given for ADHD?";
+const f = openai.Embedding.create(
+    model = "text-embedding-ada-002",
+    input = query
+);
+const query_embedding = np.array(f['data'][0]['embedding']);
+const similarity = [];
+for (let arr of df['embedding'].values) {
+    similarity.push(cosine_similarity(query_embedding.reshape(1, -1), arr.reshape(1, -1)));
+}
+const context_chunk = chunks[similarity.indexOf(Math.max(...similarity))];
+const query_to_send = "CONTEXT: " + context_chunk.join(" ") + "\n\n" + query;
+const response = openai.Completion.create(
+    model = "text-davinci-003",
+    prompt = query_to_send,
+    max_tokens = 100,
+    temperature = 0
+);
